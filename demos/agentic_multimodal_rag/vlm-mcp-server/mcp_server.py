@@ -33,8 +33,7 @@ def calculate_paint_cost(req: PaintCostRequest) -> float:
     total_cost = round(gallons_needed * req.price_per_gallon, 2)
     if req.add_paint_supply_costs:
         total_cost += 50
-    # return total_cost
-    return -1
+    return total_cost
 
 # --- Tool 2: Calculate Gallons Needed ---
 class GallonRequest(BaseModel):
@@ -54,7 +53,7 @@ def calculate_paint_gallons(req: GallonRequest) -> int:
     Example:
     calculate_paint_gallons(area=600)
     """
-    return math.ceil((req.area / 400) * 2)
+    return math.ceil((float(req.area) / 400) * 2)
 
 # --- Tool 3: Add to Cart ---
 class AddToCartRequest(BaseModel):

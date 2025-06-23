@@ -21,10 +21,9 @@ from llama_index.core import SimpleDirectoryReader
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.core.agent import ReActAgent
 from llama_index.core.tools import FunctionTool
-# from llama_index.core.tools import FunctionToolSpec
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.embeddings.huggingface_openvino import OpenVINOEmbedding
-from llama_index.llms.openvino import OpenVINOLLM
+# from llama_index.llms.openvino import OpenVINOLLM
 from llama_index.core.agent import ReActChatFormatter
 from llama_index.core.llms import MessageRole
 from llama_index.core.callbacks import CallbackManager
@@ -32,7 +31,8 @@ from llama_index.core.callbacks import CallbackManager
 from tools import PaintCalculator, ShoppingCart
 from system_prompt import react_system_header_str
 
-from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
+from openvino_genai import VLMPipeline
+from openvino_vlm import OpenVINOVLM
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -47,24 +47,10 @@ ov_config = {
     props.cache_dir(): ""
 }
 
-from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
-
-# Existing local MCP server
-local_mcp_client = BasicMCPClient("http://localhost:8000/sse")
-local_mcp_spec = McpToolSpec(client=local_mcp_client)
-
-# New DuckDuckGo MCP server
-search_mcp_client = BasicMCPClient("http://localhost:8001/sse")
-search_mcp_spec = McpToolSpec(client=search_mcp_client)
-
-
-import requests
-from llama_index.core.tools import FunctionTool
-
 def setup_models(
     llm_model_path: Path,
     embedding_model_path: Path,
-    device: str) -> Tuple[OpenVINOLLM, OpenVINOEmbedding]:
+    device: str) -> Tuple[OpenVINOVLM, OpenVINOEmbedding]:
     """
     Sets up LLM and embedding models using OpenVINO.
     
@@ -86,28 +72,86 @@ def setup_models(
         log.error(f"Embedding model not found at {embedding_model_path}. Please run convert_and_optimize_llm.py to download the model first.")
         sys.exit(1)
 
-    # Load LLM model locally    
-    llm = OpenVINOLLM(
-        model_id_or_path=str(llm_model_path),
-        context_window=8192,
-        max_new_tokens=500,
-        model_kwargs={"ov_config": ov_config},
-        generate_kwargs={"do_sample": False, "temperature": 0.1, "top_p": 0.8},        
-        device_map=device,
-    )
+    vlm_pipeline = VLMPipeline(llm_model_path, device)
+    vlm = OpenVINOVLM(vlm_pipeline=vlm_pipeline)
 
     # Load the embedding model locally
     embedding = OpenVINOEmbedding(model_id_or_path=str(embedding_model_path), device=device)
 
-    return llm, embedding
+    return vlm, embedding
 
-def setup_tools() -> Tuple:
+
+def setup_tools()-> Tuple[FunctionTool, FunctionTool, FunctionTool, FunctionTool, FunctionTool]:
+
     """
-    Fetch tools from both local and search MCP servers.
+    Sets up and returns a collection of tools for paint calculations and shopping cart management.
+    
+    Returns:
+        Tuple containing tools for paint cost calculation, paint gallons calculation, 
+        adding items to cart, viewing cart, and clearing cart
     """
-    tools = local_mcp_spec.to_tool_list() + search_mcp_spec.to_tool_list()
-    # tools = local_mcp_spec.to_tool_list()
-    return tuple(tools)
+
+    paint_cost_calculator = FunctionTool.from_defaults(
+        fn=PaintCalculator.calculate_paint_cost,
+        name="calculate_paint_cost",
+        description="ALWAYS use this tool when calculating paint cost for a specific area in square feet. Required inputs: area (float, square feet), price_per_gallon (float), add_paint_supply_costs (bool)"
+    )
+
+    paint_gallons_calculator = FunctionTool.from_defaults(
+    fn=PaintCalculator.calculate_paint_gallons_needed,
+    name="calculate_paint_gallons",
+    description="Calculate how many gallons of paint are needed to cover a specific area. Required input: area (float, square feet). Returns the number of gallons needed, rounded up to ensure full coverage."
+)
+
+    add_to_cart_tool = FunctionTool.from_defaults(
+        fn=ShoppingCart.add_to_cart,
+        name="add_to_cart",
+        description="""
+        Use this tool WHENEVER a user wants to add any item to their cart or shopping cart.
+        
+        PARAMETERS:
+        - product_name (string): The exact name of the product (e.g., "Premium Latex Paint")
+        - quantity (int): The number of units to add, must be a positive integer (e.g., 2)
+        - price_per_unit (float): The price per unit in dollars (e.g., 24.99)
+        
+        RETURNS:
+        - A confirmation message and updated cart contents
+        
+        EXAMPLES:
+        To add 3 gallons of paint at $29.99 each: add_to_cart(product_name="Interior Eggshell Paint", quantity=3, price_per_unit=29.99)
+        """
+    )
+    
+    get_cart_items_tool = FunctionTool.from_defaults(
+        fn=ShoppingCart.get_cart_items,
+        name="view_cart",
+        description="""
+        Use this tool when a user wants to see what's in their shopping cart.
+        No parameters are required.
+        
+        RETURNS:
+        - A list of all items currently in the cart with their details
+        
+        EXAMPLES:
+        To view the current cart contents: view_cart()
+        """
+    )
+    
+    clear_cart_tool = FunctionTool.from_defaults(
+        fn=ShoppingCart.clear_cart,
+        name="clear_cart",
+        description="""
+        Use this tool when a user asks to empty or clear their shopping cart.
+        No parameters are required.
+        
+        RETURNS:
+        - A confirmation message that the cart has been cleared
+        
+        EXAMPLES:
+        To empty the shopping cart: clear_cart()
+        """
+    )
+    return paint_cost_calculator, add_to_cart_tool, get_cart_items_tool, clear_cart_tool, paint_gallons_calculator
 
 
 def load_documents(text_example_en_path: Path) -> VectorStoreIndex:
@@ -464,7 +508,8 @@ def run(chat_model: Path, embedding_model: Path, rag_pdf: Path, device: str, pub
     Settings.embed_model = embedding
     Settings.llm = llm
 
-    tools = setup_tools()
+    # Set up tools
+    paint_cost_calculator, add_to_cart_tool, get_cart_items_tool, clear_cart_tool, paint_gallons_calculator = setup_tools()
     
     text_example_en_path = Path(rag_pdf)
     index = load_documents(text_example_en_path)
@@ -492,15 +537,10 @@ def run(chat_model: Path, embedding_model: Path, rag_pdf: Path, device: str, pub
     )
     
     nest_asyncio.apply()
-
-    tools = setup_tools() + (vector_tool,)
-
-    for t in tools:
-        print(f"[Tool] {t.metadata.name}")
  
     # Define agent and available tools
     agent = ReActAgent.from_tools(
-        tools,
+        [paint_cost_calculator, add_to_cart_tool, get_cart_items_tool, clear_cart_tool, vector_tool, paint_gallons_calculator],
         llm=llm,
         max_iterations=5,  # Set a max_iterations value
         handle_reasoning_failure_fn=custom_handle_reasoning_failure,
@@ -508,8 +548,7 @@ def run(chat_model: Path, embedding_model: Path, rag_pdf: Path, device: str, pub
         react_chat_formatter=ReActChatFormatter.from_defaults(
             observation_role=MessageRole.TOOL   
         ),
-    )
-    agent.verbose = True
+    ) 
     react_system_prompt = PromptTemplate(react_system_header_str)
     agent.update_prompts({"agent_worker:system_prompt": react_system_prompt})  
     agent.reset()                     
