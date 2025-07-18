@@ -8,6 +8,15 @@ To build a truly multimodal search for videos, you need to work with different m
 
 ## Notebook contents
 The tutorial consists from following steps:
+1) Run the FastMCP servers from the command-line 
+- CD into the folder where your mcp_server.py and search_mcp_server.py live:
+- cd path\to\your\notebook\directory
+- Start the retail/cart server (no --reload, to avoid that Windows path-scanning error) with the following command:
+  uvicorn mcp_server:app --host 127.0.0.1 --port 8000
+- In a second terminal, start the DuckDuckGo search server likewise:
+  uvicorn search_mcp_server:app --host 127.0.0.1 --port 8001
+  
+2) Then run the notebook from the 1st cell
 
 - Install requirements
 - Convert and Optimize model
