@@ -5,7 +5,7 @@ optimum-intel==1.23.0
 optimum==1.25.3
 nncf==2.16.0
 
-llama-index==0.12.9
+llama-index==0.12.28
 llama-index-llms-openvino==0.4.0
 llama-index-embeddings-openvino==0.5.1
 llama-index-postprocessor-openvino-rerank==0.4.1
@@ -13,18 +13,18 @@ llama-index-vector-stores-faiss==0.3.0
 langchain-text-splitters==0.3.4
 faiss-cpu==1.11.0
 
-onnx==1.17.0
+onnx==1.18.0
 onnxruntime==1.20.1
-torch==2.7.0
-torchaudio==2.7.0
-numpy==1.26.4
+torch==2.7.1
+torchaudio==2.7.1
+numpy==2.2.6
 
 transformers==4.50.3
 librosa==0.10.2
 pyyaml==6.0.1
 pymupdf==1.24.10
 
-gradio==5.23.3
+gradio==5.35.0
 
 # melotts dependencies
 cn2an==0.5.22
