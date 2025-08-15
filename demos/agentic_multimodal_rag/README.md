@@ -28,13 +28,8 @@ Models used:
 - MM embedding: CLIP-VIT-B-32-laion-s34B-b79K
 - ASR:distil-whisper-large-v3-int8-ov
 
-
 In this demonstration, you'll create interactive Q&A system that can answer questions about provided video's content.
 
-## Installation instructions
-This is a self-contained example that relies solely on its own code.</br>
-We recommend running the notebook in a virtual environment. You only need a Jupyter server to start.
-For details, please refer to [Installation Guide](../../README.md).
 
-<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=5b5a4db0-7875-4bfb-bdbd-01698b5b1a77&file=notebooks/multimodal-rag/README.md" />
+
 
