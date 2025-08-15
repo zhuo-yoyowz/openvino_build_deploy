@@ -6,25 +6,28 @@ To build a truly multimodal search for videos, you need to work with different m
 
 ![image](https://github.com/user-attachments/assets/a8ebf3fc-7a34-416b-b744-609965792744)
 
-## Notebook contents
+## Contents
 The tutorial consists from following steps:
 1) Run the FastMCP servers from the command-line 
-- CD into the folder where your mcp_server.py and search_mcp_server.py live (within the vlm-mcp-server folder):
-- cd path\to\your\notebook\directory
+- CD into the folder where your mcp_server.py, search_mcp_server.py and video_mcp_server.py live:
+- cd path\to\your\directory
 - Start the retail/cart server (no --reload, to avoid that Windows path-scanning error) with the following command:
   uvicorn mcp_server:app --host 127.0.0.1 --port 8000
 - In a second terminal, start the DuckDuckGo search server likewise:
   uvicorn search_mcp_server:app --host 127.0.0.1 --port 8001
+- In a third terminal, start the video search based Q&A server likewise:
+  uvicorn video_mcp_server:app --host 127.0.0.1 --port 8002
   
-2) Then run the notebook from the 1st cell
+2) Then run main.py
 
-- Install requirements
-- Convert and Optimize model
-- Download and process video
-- Create the multi-modal index
-- Search text and image embeddings
-- Generate final response using VLM
-- Launch Interactive demo
+Install all dependencies from requirements.txt. Note, all model downloading and converting have to be manually done through "optimum-cli" or downloading from OpenVINO Model Zone from HF directly. Haven't included the model conversion file yet. 
+
+Models used:
+- LLM: Qwen2.5-7b-instruct-int4-ov
+- VLM: Phi3.5-vision-instruct-int4-ov
+- MM embedding: CLIP-VIT-B-32-laion-s34B-b79K
+- ASR:distil-whisper-large-v3-int8-ov
+
 
 In this demonstration, you'll create interactive Q&A system that can answer questions about provided video's content.
 
@@ -34,3 +37,4 @@ We recommend running the notebook in a virtual environment. You only need a Jupy
 For details, please refer to [Installation Guide](../../README.md).
 
 <img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=5b5a4db0-7875-4bfb-bdbd-01698b5b1a77&file=notebooks/multimodal-rag/README.md" />
+
