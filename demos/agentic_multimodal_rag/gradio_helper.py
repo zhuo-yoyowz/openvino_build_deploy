@@ -1,92 +1,116 @@
-from typing import Callable
+from typing import Callable, Tuple, List
 import gradio as gr
+from pathlib import Path
+import inspect
+import re
 
 examples = [
-    ["What dessert is included in this video?"],
-    ["Tell me how to make a trifle. I want to make one myself"],
-    ["I think I need to buy some ingredients first. I need product information on online shopping platforms."],
-    ["Search for custard for me in these online shopping platforms"],
+    "What dessert is included in this video?",
+    "Tell me how to make a trifle. I want to make one myself",
+    "I need to buy some ingredients—search online shopping platforms.",
+    "Search for custard on the shopping platforms",
 ]
 
-
 def clear_files():
-    return "Vector Store is Not ready"
+    return "Vector Store is Not Ready"
 
+def make_demo(example_path: str, 
+              run_fn: Callable[[List[dict], str, list, str, str], Tuple[List[dict], str, str, List[str]]], 
+              stop_fn: Callable[[], None]) -> gr.Blocks:
 
-def handle_user_message(message, history):
-    """
-    callback function for updating user messages in interface on submit button click
+    example_path = Path(example_path)
 
-    Params:
-      message: current message
-      history: conversation history
-    Returns:
-      None
-    """
-    # Append the user's message to the conversation history
-    return "", history + [[message, ""]]
+    with gr.Blocks(theme=gr.themes.Soft(), css="""
+        #agent-steps { border: 2px solid #ddd; border-radius: 8px; padding: 12px; }
+        #shopping-cart { border: 2px solid #4CAF50; border-radius: 8px; padding: 12px; }
+    """) as demo:
 
-
-
-def make_demo(
-    example_path: str,
-    build_index: Callable,
-    search: Callable,
-    run_fn: Callable,
-    stop_fn: Callable,
-):
-    with gr.Blocks(theme=gr.themes.Soft(), css=".disclaimer{font-variant-caps:all-small-caps;}") as demo:
-        # Title
-        gr.Markdown("<h1><center>Smart Retail Assistant 🤖</center></h1>")
-        gr.Markdown("<center>Powered by OpenVINO + MCP Tools</center>")
-
-        # Hidden state
-        image_list = gr.State([])
-        txt_list   = gr.State([])
+        gr.Markdown("<h1 style='text-align:center'>Smart Retail Assistant 🤖</h1>")
+        gr.Markdown("<p style='text-align:center'>Powered by OpenVINO + MCP Tools</p>")
 
         with gr.Row():
-            # === Left Column: Video + Log/Cart Below ===
-            with gr.Column(scale=2):
-                video_file = gr.Video(value=example_path, label="1) Upload or choose a video", interactive=True)
-                build_btn  = gr.Button("2) Build Vector Store", variant="primary")
-                status     = gr.Textbox("Vector store not built", interactive=False, show_label=False)
-
+            with gr.Column(scale=3):
+                video = gr.Video(value=str(example_path), label="Upload / Choose video", interactive=True)
+                chatbot = gr.Chatbot(type="messages", label="Conversation")
+                gallery = gr.Gallery(label="Retrieved Images", type="pil")
+                msg = gr.Textbox(placeholder="Type your message…", show_label=False)
                 with gr.Row():
-                    #log_md  = gr.Markdown("### Agent’s Reasoning Log", label="Logs", height=300)
-                    log_window = gr.Markdown("### 🤖 Agent’s Reasoning Log", label="Logs", height=300)
-                    cart_md = gr.Markdown("### 🛒 Your Actions / Cart", label="Cart", height=300)
-
-            # === Right Column: Chat UI ===
-            with gr.Column(scale=2):
-                chatbot   = gr.Chatbot(label="Conversation", height=500)
-                with gr.Row():
-                    msg      = gr.Textbox(placeholder="Type your message…", show_label=False, container=False)
                     send_btn = gr.Button("Send", variant="primary")
                     stop_btn = gr.Button("Stop")
-                    clr_btn  = gr.Button("Clear")
-                gr.Examples(examples, inputs=[msg], label="Click example, then Send")
+                    clear_btn = gr.Button("Clear All")
+                gr.Examples(
+                    examples=[
+                        "What dessert is in the video?",
+                        "Tell me how to make a trifle. I want to make one myself",
+                        "I need to buy some ingredients—search online shopping platforms.",
+                        "Search for custard on the shopping platforms",
+                        "Show my cart"
+                    ],
+                    inputs=msg
+                )
 
-        # === Events ===
+            with gr.Column(scale=2):
+                gr.Markdown("### 🧠 Agent Reasoning Log")
+                log_window = gr.Textbox(value="", label="", elem_id="agent-steps", lines=15)
+                gr.Markdown("### 🛒 Actions / Cart")
+                cart_md = gr.Markdown(value="", elem_id="shopping-cart", height=200)
 
-        build_btn.click(fn=build_index, inputs=[video_file], outputs=[status], queue=True)
+        # Hidden state so we don't feed the textbox back into the backend
+        log_state = gr.State("")
 
-        def _chain_event(trigger):
-            return (
-                trigger(handle_user_message, [msg, chatbot], [msg, chatbot], queue=False)
-                       .then(search, [chatbot], [image_list, txt_list], queue=True)
-                       .then(run_fn,  [chatbot, log_window, image_list, txt_list], [chatbot, log_window, cart_md], queue=True)
-            )
+        def _normalize_for_display(s: str) -> str:
+            if not isinstance(s, str):
+                return ""
+            s = s.replace("\r", "")
+            # keep paragraph breaks, but collapse intra-paragraph newlines
+            s = re.sub(r'(?<!\n)\n(?!\n)', ' ', s)
+            s = re.sub(r'[ \t]+', ' ', s)
+            s = re.sub(r'[ \t]+\n', '\n', s)
+            return s
 
-        submit_event = _chain_event(msg.submit)
-        click_event  = _chain_event(send_btn.click)
+        async def run_passthrough(chat, _log_state, st1, st2, message):
+            """
+            The backend yields (chat, full_log, cart_md, images) repeatedly.
+            We REPLACE the textbox with full_log every tick (no accumulation here).
+            """
+            result = run_fn(chat, _log_state, st1, st2, message)
 
-        stop_btn.click(fn=stop_fn, inputs=None, outputs=None, cancels=[submit_event, click_event], queue=False)
+            if inspect.isasyncgen(result):
+                async for step in result:
+                    chat_o, log_full, cart_md_o, images_o = step
+                    yield chat_o, _normalize_for_display(log_full or ""), cart_md_o, images_o
+                return
 
-        clr_btn.click(
-            fn=lambda: ("", [], "### Agent’s Reasoning Log", "### 🛒 Your Actions / Cart"),
-            inputs=None,
-            outputs=[msg, chatbot, log_window, cart_md],
-            queue=False
+            if inspect.iscoroutine(result):
+                chat_o, log_full, cart_md_o, images_o = await result
+                yield chat_o, _normalize_for_display(log_full or ""), cart_md_o, images_o
+                return
+
+            if inspect.isgenerator(result):
+                for step in result:
+                    chat_o, log_full, cart_md_o, images_o = step
+                    yield chat_o, _normalize_for_display(log_full or ""), cart_md_o, images_o
+                return
+
+            chat_o, log_full, cart_md_o, images_o = result
+            yield chat_o, _normalize_for_display(log_full or ""), cart_md_o, images_o
+            return
+
+        send_btn.click(
+            fn=run_passthrough,
+            inputs=[chatbot, log_state, gr.State([]), gr.State([]), msg],
+            outputs=[chatbot, log_window, cart_md, gallery],
+            queue=True
         )
+
+        stop_btn.click(fn=stop_fn)
+        clear_btn.click(
+            fn=lambda: ([], "", "", []),
+            inputs=[],
+            outputs=[chatbot, log_window, cart_md, gallery]
+        )
+
+        # IMPORTANT: enable queue globally so Gradio streams progressively
+        demo.queue()
 
     return demo
