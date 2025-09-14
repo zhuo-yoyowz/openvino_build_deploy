@@ -306,7 +306,6 @@ def run(video_path: str, model_name: str, flip: bool = True, summary_ov_model: s
     # clean-up windows
     cv2.destroyAllWindows()
 
-    # --- Minimal addition: download (if needed) and stream summary ---
     if summary_ov_model:
         local_summary_model = asyncio.run(download_model(summary_ov_model))
         print("\n" + "=" * 60)
